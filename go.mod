@@ -1,4 +1,4 @@
-module go-ioc.totote05.ar
+module github.com/totote05/go-ioc
 
 go 1.23
 

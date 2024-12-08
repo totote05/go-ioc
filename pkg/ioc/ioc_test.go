@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"go-ioc.totote05.ar/pkg/ioc"
+	"github.com/totote05/go-ioc/pkg/ioc"
 )
 
 type (
