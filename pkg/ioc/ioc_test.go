@@ -1,6 +1,8 @@
 package ioc_test
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -22,11 +24,25 @@ type (
 	}
 	SingletonService TestService
 	TransientService TestService
+	MyHandler        ioc.Handler
 )
+
+func init() {
+	// bind singleton
+	ioc.BindSingleton(NewSingletonService)
+
+	// bind transient
+	ioc.BindTransient(NewTransientService)
+
+	// bind handler
+	ioc.BindTransient(NewHandler)
+}
 
 func (t *MyService) GetName() string {
 	return t.Name
 }
+
+func (t *MyService) Handle(w http.ResponseWriter, r *http.Request) {}
 
 func NewMyService() *MyService {
 	return &MyService{}
@@ -51,32 +67,32 @@ func NewComplexService(singletonService SingletonService, transientService Trans
 	}
 }
 
+func NewHandler() MyHandler {
+	return &MyService{}
+}
+
 func TestUnboundType(t *testing.T) {
 	assert.PanicsWithValue(t, "Unbound type: ioc_test.TestService", func() {
-		container := ioc.NewContainer()
-		ioc.Resolve[TestService](container)
+		ioc.Resolve[TestService]()
 	})
 }
 
 func TestAlreadyBoundType(t *testing.T) {
 	assert.PanicsWithValue(t, "Type already bound: ioc_test.SingletonService", func() {
-		container := ioc.NewContainer()
-		container.BindSingleton(NewSingletonService)
-		container.BindSingleton(NewSingletonService)
+		ioc.BindSingleton(NewSingletonService)
+		ioc.BindSingleton(NewSingletonService)
 	})
 }
 
 func TestConstructorIsNotAFunction(t *testing.T) {
 	assert.PanicsWithValue(t, "Constructor must be a function", func() {
-		container := ioc.NewContainer()
-		container.BindSingleton(&MyService{})
+		ioc.BindSingleton(&MyService{})
 	})
 }
 
 func TestConstructorMustReturnSingleValue(t *testing.T) {
 	assert.PanicsWithValue(t, "Constructor must return a single value", func() {
-		container := ioc.NewContainer()
-		container.BindSingleton(func() (TestService, error) {
+		ioc.BindSingleton(func() (TestService, error) {
 			return nil, nil
 		})
 	})
@@ -84,11 +100,8 @@ func TestConstructorMustReturnSingleValue(t *testing.T) {
 
 func TestSingletonBinding(t *testing.T) {
 	assert.NotPanics(t, func() {
-		container := ioc.NewContainer()
-		container.BindSingleton(NewSingletonService)
-
-		instance1 := ioc.Resolve[SingletonService](container)
-		instance2 := ioc.Resolve[SingletonService](container)
+		instance1 := ioc.Resolve[SingletonService]()
+		instance2 := ioc.Resolve[SingletonService]()
 
 		if instance1 != instance2 {
 			t.Errorf("Expected instance1 and instance2 to be equal, but got %v and %v", instance1, instance2)
@@ -99,11 +112,8 @@ func TestSingletonBinding(t *testing.T) {
 
 func TestTransientBinding(t *testing.T) {
 	assert.NotPanics(t, func() {
-		container := ioc.NewContainer()
-		container.BindTransient(NewTransientService)
-
-		instance1 := ioc.Resolve[TransientService](container)
-		instance2 := ioc.Resolve[TransientService](container)
+		instance1 := ioc.Resolve[TransientService]()
+		instance2 := ioc.Resolve[TransientService]()
 
 		if instance1 == instance2 {
 			t.Errorf("Expected instance1 and instance2 to be different, but got %v and %v", instance1, instance2)
@@ -114,16 +124,14 @@ func TestTransientBinding(t *testing.T) {
 
 func TestConcurrentAccess(t *testing.T) {
 	assert.NotPanics(t, func() {
-		container := ioc.NewContainer()
-		container.BindSingleton(NewSingletonService)
-		instance := ioc.Resolve[SingletonService](container)
+		instance := ioc.Resolve[SingletonService]()
 
 		var wg sync.WaitGroup
 		for i := 0; i < 10; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				newInstance := ioc.Resolve[SingletonService](container)
+				newInstance := ioc.Resolve[SingletonService]()
 				assert.Equal(t, instance, newInstance)
 			}()
 		}
@@ -133,13 +141,9 @@ func TestConcurrentAccess(t *testing.T) {
 
 func TestComplexService(t *testing.T) {
 	assert.NotPanics(t, func() {
-		container := ioc.NewContainer()
+		ioc.BindSingleton(NewComplexService)
 
-		container.BindSingleton(NewComplexService)
-		container.BindSingleton(NewSingletonService)
-		container.BindTransient(NewTransientService)
-
-		instance := ioc.Resolve[*complexService](container)
+		instance := ioc.Resolve[*complexService]()
 
 		assert.NotNil(t, instance)
 		assert.NotNil(t, instance.SingletonService)
@@ -147,22 +151,35 @@ func TestComplexService(t *testing.T) {
 	})
 }
 
+func TestResolveHandler(t *testing.T) {
+	assert.NotPanics(t, func() {
+		req, err := http.NewRequest("GET", "/", nil)
+		assert.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+
+		ioc.ResolveHanlder[MyHandler](rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+	})
+}
+
 func TestREADMEExample(t *testing.T) {
 	assert.NotPanics(t, func() {
-		// Create a container
-		container := ioc.NewContainer()
-
 		// Bind singleton service
-		container.BindSingleton(NewSingletonService)
+		// ioc.BindSingleton(NewSingletonService)
 
 		// Bind transient service
-		container.BindTransient(NewMyService)
+		ioc.BindTransient(NewMyService)
+
+		// Bind handler
+		// ioc.BindTransient(NewHandler)
 
 		// Resolve the services
-		singletonService := ioc.Resolve[SingletonService](container)
-		singletonService2 := ioc.Resolve[SingletonService](container)
-		transientService := ioc.Resolve[*MyService](container)
-		transientService2 := ioc.Resolve[*MyService](container)
+		singletonService := ioc.Resolve[SingletonService]()
+		singletonService2 := ioc.Resolve[SingletonService]()
+		transientService := ioc.Resolve[*MyService]()
+		transientService2 := ioc.Resolve[*MyService]()
 
 		// Assert that the singleton services are the same
 		if singletonService != singletonService2 {
@@ -173,5 +190,18 @@ func TestREADMEExample(t *testing.T) {
 		if transientService == transientService2 {
 			t.Errorf("Expected transientService and transientService2 to be different, but got %v and %v", transientService, transientService2)
 		}
+
+		// Create a new request
+		req, err := http.NewRequest("GET", "/", nil)
+		assert.NoError(t, err)
+
+		// Create a new response recorder
+		rr := httptest.NewRecorder()
+
+		// Resolve the handler and call the Handle method
+		ioc.ResolveHanlder[MyHandler](rr, req)
+
+		// Assert that the response status code is 200
+		assert.Equal(t, http.StatusOK, rr.Code)
 	})
 }

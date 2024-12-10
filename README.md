@@ -20,31 +20,42 @@ import (
 
 // Define the services
 type (
-  SingletonService interface {}
-  MyService struct {}
+  MyService        struct {}
+  SingletonService any
+  MyHandler        ioc.Handler
 )
 
-// Define the services constructor
-func NewSingletonService() SingletonService {
-  return &MyService{}
-}
+// Implement the handler interface
+func (t *MyService) Handle(w http.ResponseWriter, r *http.Request) {}
 
+// Define the services constructor
 func NewMyService() *MyService {
   return &MyService{}
 }
 
-func main() {
-  // Create a container
-  container := ioc.NewContainer()
+func NewSingletonService() SingletonService {
+  return &MyService{}
+}
 
+func NewHandler() MyHandler {
+	return &MyService{}
+}
+
+func main() {
   // Bind singleton service
-  container.BindSingleton(NewSingletonService)
+  ioc.BindSingleton(NewSingletonService)
 
   // Bind transient service
-  container.BindTransient(NewMyService)
+  ioc.BindTransient(NewMyService)
+
+  // Bind handler
+  ioc.BindTransient(NewHandler)
 
   // Resolve the services
-  singletonService := ioc.Resolve[SingletonService](container)
-  transientService := ioc.Resolve[*MyService](container)
+  singletonService := ioc.Resolve[SingletonService]()
+  transientService := ioc.Resolve[*MyService]()
+
+  // Resolve the handler with HandleFunc
+  http.HandleFunc("GET /", ioc.ResolveHanlder[MyHandler])
 }
 ```

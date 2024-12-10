@@ -1,6 +1,7 @@
 package ioc
 
 import (
+	"net/http"
 	"reflect"
 	"sync"
 )
@@ -9,6 +10,8 @@ const (
 	transient scope = iota
 	singleton
 )
+
+var c *container = newContainer()
 
 type (
 	scope     int
@@ -21,19 +24,18 @@ type (
 		instance    any
 		scope       scope
 	}
+	Handler interface {
+		Handle(w http.ResponseWriter, r *http.Request)
+	}
 )
 
-// var (
-// 	c = newContainer()
-// )
-
-func NewContainer() *container {
+func newContainer() *container {
 	return &container{
 		bindings: make(map[string]*binding),
 	}
 }
 
-func (c *container) bind(constructor any, scope scope) {
+func bind(constructor any, scope scope) {
 
 	constructorType := reflect.TypeOf(constructor)
 
@@ -59,15 +61,15 @@ func (c *container) bind(constructor any, scope scope) {
 	}
 }
 
-func (c *container) BindSingleton(constructor any) {
-	c.bind(constructor, singleton)
+func BindSingleton(constructor any) {
+	bind(constructor, singleton)
 }
 
-func (c *container) BindTransient(constructor any) {
-	c.bind(constructor, transient)
+func BindTransient(constructor any) {
+	bind(constructor, transient)
 }
 
-func (c *container) resolveByType(bindType reflect.Type) any {
+func resolveByType(bindType reflect.Type) any {
 	typeName := bindType.String()
 
 	c.mu.RLock()
@@ -78,30 +80,35 @@ func (c *container) resolveByType(bindType reflect.Type) any {
 	}
 
 	if constructor.scope == transient {
-		return c.invoke(constructor.constructor)
+		return invoke(constructor.constructor)
 	}
 
 	if constructor.instance == nil {
-		constructor.instance = c.invoke(constructor.constructor)
+		constructor.instance = invoke(constructor.constructor)
 	}
 
 	return constructor.instance
 }
 
-func (c *container) invoke(constructor any) any {
+func invoke(constructor any) any {
 	constructorValue := reflect.ValueOf(constructor)
 	constuctorType := constructorValue.Type()
 
 	var args []reflect.Value
 	for i := 0; i < constuctorType.NumIn(); i++ {
 		argType := constuctorType.In(i)
-		argValue := reflect.ValueOf(c.resolveByType(argType))
+		argValue := reflect.ValueOf(resolveByType(argType))
 		args = append(args, argValue)
 	}
 	results := constructorValue.Call(args)
 	return results[0].Interface()
 }
 
-func Resolve[T any](c *container) T {
-	return c.resolveByType(reflect.TypeOf((*T)(nil)).Elem()).(T)
+func Resolve[T any]() T {
+	return resolveByType(reflect.TypeOf((*T)(nil)).Elem()).(T)
+}
+
+func ResolveHanlder[T Handler](w http.ResponseWriter, r *http.Request) {
+	handler := resolveByType(reflect.TypeOf((*T)(nil)).Elem()).(T)
+	handler.Handle(w, r)
 }
